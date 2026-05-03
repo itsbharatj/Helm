@@ -3,6 +3,8 @@
 # compiled output
 dist
 tmp
+packages/cli/vendor
+packages/cli/tsconfig.standalone.json
 out-tsc
 *.tsbuildinfo
 .expo

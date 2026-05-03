@@ -1,10 +1,5 @@
 import type { LLMProvider, Message } from '@helm/llm';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { embodyPrompt, buildPrompt } from './prompts/index.js';
 
 export type AgentMode = 'embody' | 'build';
 
@@ -27,13 +22,7 @@ export class AgentLoop {
   }
 
   private loadSystemPrompt(mode: AgentMode): string {
-    const promptPath = path.join(__dirname, 'prompts', `${mode}.md`);
-    if (fs.existsSync(promptPath)) {
-      return fs.readFileSync(promptPath, 'utf-8');
-    }
-    return mode === 'embody'
-      ? 'You are Helm, a terminal agent for controlling ROS2 robots. Help the user control their robot safely and effectively.'
-      : 'You are Helm, a terminal agent for building ROS2 robot software. Help the user design and implement robot software stacks.';
+    return mode === 'embody' ? embodyPrompt : buildPrompt;
   }
 
   setMode(mode: AgentMode): void {
