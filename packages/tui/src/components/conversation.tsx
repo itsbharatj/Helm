@@ -1,6 +1,7 @@
-import React from 'react';
-import { Box, Text, Static } from 'ink';
+import React, { useMemo } from 'react';
+import { Box, Text } from 'ink';
 import type { Message } from '@helm/llm';
+import { Markdown } from './markdown.js';
 
 interface ConversationProps {
   messages: Message[];
@@ -11,42 +12,45 @@ interface ConversationProps {
   width: number;
 }
 
-function UserMessage({ content }: { content: string }) {
+function UserBubble({ content }: { content: string }) {
   return (
-    <Box marginBottom={1} flexDirection="column">
+    <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text bold color="cyan">
-          {'> '}
-        </Text>
-        <Text color="white" wrap="wrap">
-          {content}
-        </Text>
+        <Text bold color="cyan">{'you  '}</Text>
+        <Text color="gray" dimColor>─────────────────────</Text>
+      </Box>
+      <Box paddingLeft={2} flexShrink={1}>
+        <Text color="white" wrap="wrap">{content}</Text>
       </Box>
     </Box>
   );
 }
 
-function AssistantMessage({ content }: { content: string }) {
+function AssistantBubble({ content, streaming = false }: { content: string; streaming?: boolean }) {
   return (
-    <Box marginBottom={1} flexDirection="column">
+    <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text bold color="green">
-          {'  '}
-        </Text>
-        <Text color="white" wrap="wrap">
-          {content}
-        </Text>
+        <Text bold color="green">{'helm '}</Text>
+        <Text color="gray" dimColor>─────────────────────</Text>
+        {streaming && <Text color="yellow" dimColor> ◌</Text>}
+      </Box>
+      <Box paddingLeft={2} flexShrink={1} flexDirection="column">
+        <Markdown content={content} />
       </Box>
     </Box>
   );
 }
 
-function SystemMessage({ content, color = 'yellow' }: { content: string; color?: string }) {
+function ErrorBubble({ content }: { content: string }) {
   return (
-    <Box marginBottom={1}>
-      <Text color={color} wrap="wrap">
-        {content}
-      </Text>
+    <Box flexDirection="column" marginBottom={1}>
+      <Box>
+        <Text bold color="red">{'error '}</Text>
+        <Text color="gray" dimColor>────────────────────</Text>
+      </Box>
+      <Box paddingLeft={2}>
+        <Text color="red" wrap="wrap">{content}</Text>
+      </Box>
     </Box>
   );
 }
@@ -59,7 +63,14 @@ export function Conversation({
   height,
   width,
 }: ConversationProps) {
-  const isEmpty = messages.length === 0 && !streamingContent && !isThinking;
+  const isEmpty = messages.length === 0 && !streamingContent && !isThinking && !error;
+
+  // Estimate visible messages: each message is ~3+ lines
+  // Show as many as fit, from the end
+  const visibleMessages = useMemo(() => {
+    if (messages.length <= 8) return messages;
+    return messages.slice(-8);
+  }, [messages]);
 
   return (
     <Box
@@ -67,51 +78,43 @@ export function Conversation({
       height={height}
       width={width}
       paddingX={2}
-      paddingY={1}
+      paddingTop={1}
       overflowY="hidden"
+      flexShrink={0}
     >
-      {isEmpty && (
-        <Box flexDirection="column" alignItems="center" justifyContent="center" height={height - 2}>
-          <Text color="gray">Type a message to start. </Text>
-          <Text color="gray">Slash commands: /help /clear /mode /quit</Text>
+      {isEmpty ? (
+        <Box flexDirection="column" paddingTop={2}>
+          <Text color="gray">Type a message and press Enter to start.</Text>
+          <Text color="gray" dimColor>Type / for commands, ! for shell.</Text>
         </Box>
-      )}
+      ) : (
+        <>
+          {visibleMessages.map((msg, i) =>
+            msg.role === 'user' ? (
+              <UserBubble key={i} content={msg.content} />
+            ) : (
+              <AssistantBubble key={i} content={msg.content} />
+            ),
+          )}
 
-      <Static items={messages}>
-        {(msg, i) =>
-          msg.role === 'user' ? (
-            <UserMessage key={i} content={msg.content} />
-          ) : (
-            <AssistantMessage key={i} content={msg.content} />
-          )
-        }
-      </Static>
+          {isThinking && !streamingContent && (
+            <Box flexDirection="column" marginBottom={1}>
+              <Box>
+                <Text bold color="green">{'helm '}</Text>
+                <Text color="gray" dimColor>─────────────────────</Text>
+              </Box>
+              <Box paddingLeft={2}>
+                <Text color="gray" dimColor>thinking…</Text>
+              </Box>
+            </Box>
+          )}
 
-      {isThinking && !streamingContent && (
-        <Box>
-          <Text color="green">{'  '}</Text>
-          <Text color="gray">thinking…</Text>
-        </Box>
-      )}
+          {streamingContent && (
+            <AssistantBubble content={streamingContent} streaming />
+          )}
 
-      {streamingContent && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Box>
-            <Text bold color="green">
-              {'  '}
-            </Text>
-            <Text color="white" wrap="wrap">
-              {streamingContent}
-            </Text>
-          </Box>
-        </Box>
-      )}
-
-      {error && (
-        <SystemMessage
-          content={`Error: ${error}`}
-          color="red"
-        />
+          {error && <ErrorBubble content={error} />}
+        </>
       )}
     </Box>
   );

@@ -8,7 +8,6 @@ interface InputBoxProps {
   onSubmit: (value: string) => void;
   isDisabled: boolean;
   width: number;
-  placeholder?: string;
 }
 
 export function InputBox({
@@ -17,8 +16,22 @@ export function InputBox({
   onSubmit,
   isDisabled,
   width,
-  placeholder = 'Message Helm…  (/ for commands)',
 }: InputBoxProps) {
+  const isCommand = value.startsWith('/');
+  const isShell = value.startsWith('!');
+
+  const promptColor = isDisabled
+    ? 'gray'
+    : isCommand
+    ? 'yellow'
+    : isShell
+    ? 'magenta'
+    : 'cyan';
+
+  const placeholder = isDisabled
+    ? 'waiting for response…'
+    : 'Message Helm  (/ for commands, ! for shell)';
+
   return (
     <Box
       width={width}
@@ -27,14 +40,16 @@ export function InputBox({
       borderLeft={false}
       borderRight={false}
       borderTop={true}
+      borderColor={isDisabled ? 'gray' : 'gray'}
       paddingX={2}
-      paddingY={0}
     >
-      <Text color={isDisabled ? 'gray' : 'cyan'} bold>
+      <Text color={promptColor} bold>
         {'> '}
       </Text>
       {isDisabled ? (
-        <Text color="gray">{placeholder}</Text>
+        <Text color="gray" dimColor>
+          {value || placeholder}
+        </Text>
       ) : (
         <TextInput
           value={value}
