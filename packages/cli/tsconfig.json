@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2022",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@helm/config": ["../config/src/index.ts"],
+      "@helm/llm": ["../llm/src/index.ts"],
+      "@helm/agent": ["../agent/src/index.ts"],
+      "@helm/tui": ["../tui/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,338 @@
+I'll work through this systematically. You want the prompt rewritten with TypeScript instead of Python, modern TUI frameworks, references to Codex and OpenClaw as open-source reference implementations, and a better name. Let me search for the current state of these tools so the prompt references real, current technology.Good — OpenClaw is TypeScript, which fits. Now let me check Codex and the modern TS TUI frameworks.Important finding: Codex's TUI is now **Rust** (Ratatui), not TypeScript. The TS CLI is just a thin wrapper. So if you want TypeScript, OpenClaw is the better reference. Let me confirm modern TS TUI options.Now I have enough. Let me also check rclnodejs is the right ROS2 binding for Node, since this is the trickiest engineering call:I now have everything I need. Key facts:
+
+- **OpenClaw** = TypeScript, has TUI subcommand, uses skill system, `openclaw onboard` flow → strong reference
+- **Codex** = mostly Rust now (codex-rs), but TypeScript SDK exists; the *original* TS Codex CLI is the historical reference for an Ink-based TUI
+- **TS TUI options**: Ink (React-in-terminal, what Claude Code uses), OpenTUI (Zig-backed, what OpenCode uses, RxJS-friendly, fastest)
+- **rclnodejs** = the right ROS2 binding (Humble/Jazzy/Kilted, prebuilt binaries since 1.5.2, RxJS observable subscriptions in 1.8.0 — solves the async bridge problem the original prompt called out)
+
+For the name, you want something like "dimos" — short, technical, evocative of an OS layer. A few candidates I considered: **rosi**, **anvil**, **forge**, **helm**, **bridge**, **conduit**, **proxima**, **kelp**, **ROScode**, **rcli**. I'll go with **Helm** — it's short, evokes steering/control, and "helm" is already a term of art in robotics (steering, autopilot). It also doesn't collide with the Kubernetes Helm meaningfully in the robotics context, and "the helm" reads well in marketing copy ("Take the helm of your robot"). If you don't like it, the structure of the prompt makes it trivial to find-and-replace.
+
+Here's the rewritten prompt.
+
+---
+
+# Build Prompt: Helm — A Terminal Agent for ROS2 Robots
+
+## Project Overview
+
+Build **Helm**, a terminal-based UI (TUI) for robotics, modeled on Claude Code, OpenCode, and OpenClaw, but purpose-built for working with ROS2 robots. The user installs it once with `npm i -g helm-robotics` (or `pnpm add -g helm-robotics`), runs `helm` from any directory, and interacts with their robot through natural language. The agent has direct access to ROS2 through `rclnodejs` and ships with pre-configured robotics skills (SLAM, navigation, exploration, manipulation primitives) that work out of the box.
+
+The product has two operational modes:
+
+1. **Embody mode** — The TUI is connected to a live robot. The user issues natural language commands, and the agent controls the robot in real time.
+2. **Build mode** — The TUI runs inside a project directory and helps the user build a new robot software stack from scratch, similar to how Claude Code builds software projects.
+
+## Reference Implementations
+
+Study these open-source projects before starting. They have already solved most of the hard problems:
+
+- **OpenClaw** (`github.com/openclaw/openclaw`) — TypeScript, has an `openclaw onboard` first-run wizard, a TUI subcommand with slash commands and tool-call cards, a Gateway/daemon split, and a skills/plugins system. Helm's onboarding flow, slash command system, and skill registry should mirror OpenClaw's patterns directly. Study `openclaw tui` for the conversation-pane and tool-card UX, and `openclaw onboard` for the wizard flow.
+- **OpenCode** + **OpenTUI** (`github.com/anomalyco/opentui`) — OpenCode rewrote its TUI from Go/Bubble Tea to OpenTUI (Zig-backed TS bindings) for performance reasons. This is the recommended TUI framework for Helm. Study OpenCode's architecture for how to wire a streaming agent loop into an OpenTUI app.
+- **Claude Code** — TypeScript + React + Ink. Reference for streaming-output UX, collapsible tool-call rendering, slash commands, and the conversational system-prompt patterns. Match its color palette and interaction feel.
+- **Codex CLI** (legacy TypeScript version, `github.com/openai/codex` pre-Rust-rewrite) — Reference for the in-terminal coding-agent loop. The current Codex is mostly Rust (`codex-rs`), so we don't copy its current architecture, but the original TS implementation is the closest cousin to what Helm's Build mode does.
+
+## Tech Stack
+
+- **Language:** TypeScript (Node.js 22+; OpenClaw recommends Node 24)
+- **TUI framework:** **OpenTUI** (`@opentui/core` + `@opentui/react`). This is the same stack OpenCode uses in production. Ink is acceptable as a fallback if OpenTUI's Zig build step is a problem on a contributor's machine, but OpenTUI is the default — it scales better for long-running streaming sessions and is what the rest of the modern ecosystem is consolidating on.
+- **ROS2 interface:** `rclnodejs` (`github.com/RobotWebTools/rclnodejs`). It supports Humble, Jazzy, Kilted, and Rolling, ships prebuilt native binaries for Ubuntu 22.04/24.04 on x64/arm64 (no `node-gyp` compile in the common case), and as of v1.8.0 supports RxJS observable subscriptions — which collapses the original "bridge async ROS callbacks into the agent loop" problem into idiomatic stream handling.
+- **LLM integration:** Anthropic SDK as default, plus a pluggable provider interface for OpenAI, Google, and local models (Ollama, vLLM with an OpenAI-compatible endpoint).
+- **Config storage:** TOML files in `~/.helm/`, parsed with `@iarna/toml`.
+- **Validation:** Zod for all config schemas and tool input schemas.
+- **Package management:** `pnpm` workspace with a `pnpm-workspace.yaml`.
+- **Distribution:** Single CLI command via `npm i -g helm-robotics`.
+
+## Onboarding Flow
+
+When the user runs `helm` for the first time, walk them through an OpenClaw-style wizard. Each step is a separate OpenTUI screen:
+
+1. **Welcome screen.** Brief intro to what Helm is. Two options: "Set up now" or "Skip for now."
+2. **LLM provider selection.** A list with descriptions:
+   - Anthropic Claude (recommended)
+   - OpenAI
+   - Google Gemini
+   - Local model (Ollama / vLLM endpoint with a custom base URL)
+3. **API key entry.** Masked input field. Validate the key by making a test call against the provider's `/messages` or equivalent endpoint. Store in `~/.helm/config.toml` with file permissions set to `0600`.
+4. **Mode selection.** Ask which mode they want as default:
+   - Embody mode (I have a robot ready)
+   - Build mode (I'm building a robot project)
+5. **If Embody:** Detect the ROS2 installation by checking for `$ROS_DISTRO` and `/opt/ros/<distro>/setup.bash`. Confirm the `ROS_DOMAIN_ID`. Use `rclnodejs` to list discovered nodes/topics so the user can confirm the robot is reachable.
+6. **If Build:** Prompt for a project directory or offer to create one. Initialize a `helm.toml` config in that folder.
+7. **Done screen.** Show the keybindings and how to switch modes (`/embody`, `/build`).
+
+After onboarding, the user lands in the main TUI session.
+
+## TUI Layout
+
+A single-window TUI with three regions:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Helm  │  Mode: Embody  │  Robot: turtle1  │  Claude       │  ← Status bar
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  > Move the robot 2 meters forward                          │
+│                                                             │
+│  [agent] I'll publish a velocity command on /cmd_vel...     │
+│  [tool]  publish_twist(linear_x=0.2, duration=10s)          │
+│  [agent] Done. The robot moved 2 meters forward.            │
+│                                                             │
+│                                                             │  ← Conversation pane
+├─────────────────────────────────────────────────────────────┤
+│ > _                                                         │  ← Input box
+└─────────────────────────────────────────────────────────────┘
+```
+
+Optional side panel (toggleable with `Ctrl+T`) showing live telemetry:
+
+- Active topics and their message rates (Hz)
+- Battery, IMU, current pose
+- Currently running skills
+
+Tool calls render as collapsible cards (collapsed by default, expand with `Ctrl+O` — match the OpenClaw and Codex conventions). While a tool is running, partial updates stream into the same card.
+
+## Mode 1: Embody Mode
+
+When in Embody mode, the agent has access to tools that directly call `rclnodejs`:
+
+### Sensing tools
+
+- `get_camera_frame(topic)` — Capture a single frame, return as a base64-encoded image for the LLM to analyze.
+- `get_lidar_scan(topic)` — Return a downsampled LiDAR scan as structured JSON.
+- `get_imu(topic)` — Current orientation, angular velocity, linear acceleration.
+- `get_pose(frame)` — Current robot pose in a given tf frame.
+- `get_joint_states()` — All joint positions and velocities.
+
+### Actuation tools
+
+- `publish_twist(linear_x, linear_y, angular_z, duration)` — Velocity command.
+- `send_nav_goal(x, y, theta, frame)` — Send a Nav2 goal.
+- `call_service(name, request)` — Generic service call.
+- `send_action_goal(name, goal)` — Generic action client.
+
+### Introspection tools
+
+- `list_topics()` / `list_services()` / `list_nodes()` / `list_actions()`
+- `inspect_message_type(type_name)` — Return the schema for a ROS2 message.
+
+### Lifecycle tools
+
+- `launch(package, launch_file, args)` — Run a launch file as a subprocess.
+- `stop(launch_id)` — Stop a running launch.
+- `list_running()` — Show what's currently running.
+
+### Skills (pre-configured high-level capabilities)
+
+- `start_slam(algorithm="slam_toolbox")` — Bring up SLAM with a tested config.
+- `start_navigation(map_path?)` — Launch the Nav2 stack.
+- `start_exploration(strategy="frontier")` — Autonomous mapping.
+- `follow_object(object_class, source_topic)` — Vision-based following.
+- `pick_object(object_description)` — Manipulation primitive (vision + IK).
+
+Each skill is a self-contained module under `helm/skills/<name>/` with a `SKILL.md` describing what it does, when to use it, what parameters it accepts, and which ROS2 packages it depends on. The agent reads each `SKILL.md` to decide when to invoke a skill. This is the same skill pattern OpenClaw uses and that the user has already been building in their ROS-MCP project — port it over directly.
+
+## Mode 2: Build Mode
+
+Build mode behaves like Claude Code or the original Codex CLI. The agent operates inside a project folder and helps the user build robot software. Tools available:
+
+### File system tools
+
+- `view`, `create_file`, `str_replace`, `bash` — same semantics as Claude Code.
+
+### ROS2 project tools
+
+- `create_ros2_package(name, build_type, dependencies)` — Run `ros2 pkg create` with proper structure.
+- `add_node(package, name, language)` — Scaffold a Python, C++, or TypeScript (rclnodejs) node.
+- `add_launch_file(package, name)` — Generate a launch file.
+- `add_msg(package, name, fields)` — Generate a custom message.
+- `colcon_build(packages?)` — Build the workspace.
+- `colcon_test(packages?)` — Run tests.
+
+### URDF/simulation tools
+
+- `create_urdf(robot_description)` — Scaffold a URDF from a description.
+- `launch_gazebo(world, robot)` — Bring up a Gazebo simulation.
+- `validate_urdf(path)` — Check URDF syntax and physics validity.
+
+In Build mode the agent has access to the same skills registry, but it embeds skill code into the user's project rather than running it directly.
+
+## Mode Switching
+
+Slash commands switch modes mid-session, in the OpenClaw style:
+
+- `/embody` — Enter Embody mode. Prompts for which robot to connect to if multiple are visible.
+- `/build` — Enter Build mode. Prompts for project directory if not already in one.
+- `/skills` — List available skills.
+- `/skills install <name>` — Install a community skill from the registry.
+- `/model` — Switch model mid-session (matches Codex's `/model` command).
+- `/config` — Edit configuration.
+- `/clear` — Wipe the conversation and start fresh (matches Codex/Claude Code).
+- `/help` — Show available commands.
+- `/quit` (or `Ctrl+C`) — Exit.
+
+Prefix a line with `!` to run a local shell command in the TUI (matches OpenClaw's `!` shell escape — prompt once per session for permission).
+
+## Architecture
+
+```
+helm-robotics/
+├── packages/
+│   ├── cli/                        # Entry point, argument parsing, onboarding launcher
+│   │   ├── src/cli.ts
+│   │   └── package.json            # bin: { "helm": "./dist/cli.js" }
+│   ├── tui/                        # OpenTUI app
+│   │   ├── src/app.tsx             # Top-level OpenTUI React app
+│   │   ├── src/onboarding/         # Wizard screens
+│   │   ├── src/conversation.tsx    # Conversation pane
+│   │   ├── src/status_bar.tsx
+│   │   └── src/telemetry_panel.tsx
+│   ├── agent/                      # Agent loop
+│   │   ├── src/loop.ts             # LLM call → tool call → result → repeat
+│   │   ├── src/prompts/embody.md
+│   │   ├── src/prompts/build.md
+│   │   └── src/memory.ts
+│   ├── llm/                        # Provider abstraction
+│   │   ├── src/base.ts             # LLMProvider interface
+│   │   ├── src/anthropic.ts
+│   │   ├── src/openai.ts
+│   │   ├── src/google.ts
+│   │   └── src/local.ts            # Ollama / vLLM (OpenAI-compatible)
+│   ├── tools/
+│   │   ├── src/ros2/sensing.ts
+│   │   ├── src/ros2/actuation.ts
+│   │   ├── src/ros2/introspection.ts
+│   │   ├── src/ros2/lifecycle.ts
+│   │   ├── src/filesystem/         # view, create, edit, bash
+│   │   └── src/ros2_project/       # ros2 pkg create, colcon, urdf
+│   ├── skills/
+│   │   ├── src/registry.ts         # Skill discovery and loading
+│   │   ├── slam_toolbox/{SKILL.md, skill.ts}
+│   │   ├── nav2/
+│   │   ├── frontier_exploration/
+│   │   ├── object_following/
+│   │   └── pick_object/
+│   ├── config/
+│   │   ├── src/manager.ts          # Read/write ~/.helm/config.toml
+│   │   └── src/schema.ts           # Zod schemas
+│   └── ros-bridge/                 # rclnodejs wrapper
+│       ├── src/node_manager.ts     # Manage rclnodejs node lifecycle
+│       └── src/observables.ts      # RxJS-based subscription wrappers
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+└── package.json
+```
+
+## Critical Implementation Details
+
+### rclnodejs and async — the easy version
+
+The original ROS-bridge async story was the hardest engineering problem when targeting Python (`rclpy` is not natively async, requiring a dedicated executor thread plus `asyncio.run_coroutine_threadsafe` plumbing). On Node.js this is dramatically simpler, which is one of the main reasons to prefer this stack:
+
+- `rclnodejs` exposes `node.spin()` which integrates cleanly with the Node.js event loop. You do not need a separate thread.
+- Since `rclnodejs` v1.8.0, subscriptions can be exposed as **RxJS Observables**. Wrap each ROS2 subscription as an `Observable<MessageType>` and have the agent consume them via `firstValueFrom(observable.pipe(take(1)))` or `firstValueFrom(observable.pipe(timeout(5000)))` for one-shot reads.
+- Service calls have a promise-based API as of v1.7.0 (`sendRequestAsync()` with `AbortSignal` support) — use that, not the legacy callback version.
+- Don't forget: `rclnodejs` requires the ROS 2 setup file to be sourced before the Node process starts. The CLI entrypoint must check `$ROS_DISTRO` and produce an actionable error message if it's missing (telling the user exactly which `source /opt/ros/<distro>/setup.bash` line to run).
+
+### Tool calling
+
+Use each LLM provider's native tool-calling format (Anthropic's `tools` parameter, OpenAI's function calling, Google's function declarations). Define each tool once with a Zod schema, then convert to the provider's JSON Schema format at the boundary. There are several small libraries for `Zod → JSON Schema`; pick one and stick with it.
+
+### Streaming
+
+Stream LLM responses into the conversation pane character by character. OpenTUI handles re-renders efficiently — render each streaming text block as a controlled OpenTUI `Text` component whose content updates as new tokens arrive. Tool calls render as collapsible blocks showing the call, parameters, and result.
+
+### Skill registry
+
+Skills are TypeScript modules with a `SKILL.md` and a `skill.ts` that exports a `run()` function and a `metadata` object (typed via Zod). The agent loader scans `packages/skills/` (first-party) and `~/.helm/skills/` (community-installed) and registers each one as a tool the agent can call.
+
+The official registry will be hosted at `https://registry.helm-robotics.dev` (placeholder — confirm domain availability before phase 3). `helm skill install <name>` downloads to `~/.helm/skills/<name>/`. Each skill is verified via signature against an upstream manifest, matching how OpenClaw verifies plugins.
+
+### Safety
+
+Embody mode operates physical hardware. Implement, in this order of importance:
+
+- **Emergency stop** bound to `Ctrl+C` while in Embody mode. It publishes a zero-velocity `Twist` on every detected `/cmd_vel`-shaped topic and cancels all running action goals. This must work even if the agent loop is mid-LLM-call.
+- **Confirm-before-act** setting (default on for actuation, off for sensing). Before publishing motion commands, surface a yes/no prompt in the TUI with the exact tool call and parameters. Sensing tools never prompt.
+- **Speed limits per skill**, configurable in `helm.toml`. The actuation tools clip values to these limits silently and log when clipping occurred.
+
+## Phased Deliverables
+
+### Phase 1: Foundation (Weeks 1–3)
+
+- Monorepo setup with pnpm workspaces, TypeScript, Biome (or ESLint+Prettier).
+- CLI entry point + onboarding flow as standalone OpenTUI screens.
+- OpenTUI shell with status bar, conversation pane, input box.
+- Anthropic provider + agent loop with no tools yet — just chat.
+- Config storage in `~/.helm/`.
+- **Acceptance:** User runs `npm i -g helm-robotics`, runs `helm`, completes onboarding, has a chat session with Claude in the TUI.
+
+### Phase 2: Embody mode core (Weeks 3–6)
+
+- `rclnodejs` integration via the `ros-bridge` package, with RxJS-based observable subscriptions.
+- Sensing, actuation, introspection, lifecycle tools.
+- E-stop and confirm-before-act safety.
+- Telemetry side panel.
+- **Acceptance:** User connects to turtlesim, says "drive in a square," and the turtle drives in a square. `Ctrl+C` mid-motion stops it immediately.
+
+### Phase 3: Skills registry (Weeks 6–9)
+
+- Skill loader with `SKILL.md` parsing.
+- 3–5 first-party skills: `slam_toolbox`, Nav2, frontier exploration, object following.
+- `helm skill list` and `helm skill install <name>` commands.
+- **Acceptance:** User says "explore this room and build a map," and the agent invokes the SLAM + frontier exploration skills.
+
+### Phase 4: Build mode (Weeks 9–12)
+
+- Filesystem tools.
+- ROS2 project scaffolding tools.
+- Mode switching via slash commands.
+- **Acceptance:** User says "build me a Nav2-ready package for a 4-wheeled robot," and the agent creates a working ROS2 package they can `colcon build`.
+
+### Phase 5: Polish (Weeks 12+)
+
+- Multi-provider LLM support (OpenAI, Gemini, local).
+- Community plugin system with signed manifests.
+- Documentation site.
+- Public launch on the ROS Discourse, Hacker News, and r/ROS.
+
+## Initial Task
+
+Start with Phase 1. Specifically:
+
+1. Create the monorepo with `pnpm-workspace.yaml`, root `package.json`, root `tsconfig.base.json`, and the `cli`, `tui`, `agent`, `llm`, and `config` packages stubbed out.
+2. Build the onboarding wizard as standalone OpenTUI/React screens in `packages/tui/src/onboarding/`.
+3. Implement the config manager in `packages/config/` (read/write TOML, Zod-validated).
+4. Build the Anthropic provider in `packages/llm/src/anthropic.ts` and a minimal agent loop in `packages/agent/src/loop.ts`.
+5. Implement the main TUI shell in `packages/tui/src/app.tsx` with status bar, conversation pane, and input box. No tools yet — just chat with Claude.
+
+When Phase 1 is working end to end, move to Phase 2.
+
+## Constraints
+
+- No MCP. The agent calls TypeScript functions directly. (The user has already built ROS-MCP; Helm is the integrated alternative.)
+- No `rosbridge`. The agent uses `rclnodejs`.
+- No GUI. Terminal only.
+- No app store. Distribution is via `npm i -g helm-robotics` and a Homebrew tap later.
+- Linux is the primary target (Ubuntu 22.04+ with ROS2 Humble or newer, Ubuntu 24.04 with Jazzy/Kilted). macOS support is best-effort and likely requires source builds of `rclnodejs`.
+
+## Style
+
+- Match the UX patterns of Claude Code, OpenClaw, and the legacy Codex TUI: streaming output, collapsible tool calls, slash commands, clean color palette. `Ctrl+O` toggles tool-card expansion. `/theme` lets users pick a theme. Auto-detect light vs dark terminal background; allow `HELM_THEME=light|dark` to override.
+- Error messages must be actionable. If `rclnodejs` cannot connect, tell the user exactly which environment variable to set (e.g., `source /opt/ros/jazzy/setup.bash` or `export ROS_DOMAIN_ID=0`). Same standard for missing API keys, missing colcon, missing `gz` binary, etc.
+- The agent's system prompt must explicitly tell it to prefer skills over raw tool calls when a skill exists for the task.
+
+---
+
+A few notes on what changed from your original prompt and why:
+
+The **rclnodejs + RxJS** combination eliminates the single hardest engineering problem in the original Python version. That was worth flagging explicitly so the coding agent doesn't reinvent it.
+
+I made **OpenTUI the default and Ink the fallback**. Ink is what Claude Code uses and is the safe choice, but OpenCode's migration *from* Bubble Tea *to* OpenTUI is the strongest signal in the ecosystem about where serious AI-TUI work is heading. If your coding agent gets stuck on the Zig build step on a contributor machine, falling back to Ink for that one developer is fine — both target React.
+
+I kept the **OpenClaw onboarding pattern** as the explicit reference because it's the closest match for what you described, and it's MIT-licensed TypeScript you can read directly. OpenClaw's `onboard` command and slash-command system are essentially a free reference implementation for half of Phase 1.
+
+I dropped the Codex *current* architecture as a primary reference because Codex is now mostly Rust — copying its architecture would push you off TypeScript. The legacy TS Codex is fine as a historical reference, especially for the agent loop and tool-call rendering, but OpenClaw is the better living reference.
+
+The name **Helm** is a placeholder I'm reasonably happy with but not married to — short, technical, evocative of steering/control, no major collisions in the robotics space. If you want alternatives in the same spirit: **Anvil**, **Forge**, **Conduit**, **Proxima**, **Tiller**. Decide before phase 3, since the registry domain and npm package name follow from it.
+
+Want me to expand any section into a sub-prompt — the onboarding screens with actual OpenTUI/React code skeletons, the rclnodejs RxJS bridge, or the skill registry format — before you hand this to your coding agent?

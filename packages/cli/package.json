@@ -1,0 +1,28 @@
+{
+  "name": "helm-robotics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "helm": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc --noEmit && node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@helm/agent": "workspace:*",
+    "@helm/config": "workspace:*",
+    "@helm/llm": "workspace:*",
+    "@helm/tui": "workspace:*",
+    "ink": "^5.2.1",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.2"
+  }
+}
